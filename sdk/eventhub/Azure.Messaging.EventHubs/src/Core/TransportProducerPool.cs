@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,6 +54,8 @@ namespace Azure.Messaging.EventHubs.Core
         /// </summary>
         ///
         private Timer ExpirationTimer { get; }
+
+        private DiagnosticSource DiagnosticSource { get; } = new DiagnosticListener("TransportProducerPool");
 
         /// <summary>
         ///   Initializes a new instance of the <see cref="TransportProducerPool" /> class.
@@ -115,7 +118,23 @@ namespace Azure.Messaging.EventHubs.Core
 
             var identifier = Guid.NewGuid().ToString();
 
-            var item = Pool.GetOrAdd(partitionId, id => new PoolItem(partitionId, Connection.CreateTransportProducer(id, RetryPolicy), removeAfterDuration));
+            var item = Pool.GetOrAdd(partitionId, id =>
+            {
+                Activity activity = default;
+
+                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                {
+                    activity = new Activity("TransportProducerPool.PoolItem");
+
+                    activity.AddTag("PartitionId", partitionId);
+
+                    string allPartitions = string.Join(", ", Pool.Select(p => p.Key));
+
+                    DiagnosticSource.StartActivity(activity, allPartitions);
+                }
+
+                return new PoolItem(partitionId, Connection.CreateTransportProducer(id, RetryPolicy), removeAfterDuration, activity: activity);
+            });
 
             // A race condition at this point may end with CloseAsync called on
             // the returned PoolItem if it had expired. The probability is very low and
@@ -151,6 +170,11 @@ namespace Azure.Messaging.EventHubs.Core
 
                 if (!Pool.TryGetValue(partitionId, out _) && !item.ActiveInstances.Any())
                 {
+                    if (DiagnosticSource.IsEnabled(nameof(TransportProducerPool)))
+                    {
+                        DiagnosticSource.StopActivity(item.Activity, item.PartitionId);
+                    }
+
                     return producer.CloseAsync(CancellationToken.None);
                 }
 
@@ -214,6 +238,15 @@ namespace Azure.Messaging.EventHubs.Core
                 // Capture the timestamp to use a consistent value.
                 var now = DateTimeOffset.UtcNow;
 
+                Activity activity = null;
+
+                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                {
+                    activity = new Activity("TransportProducerPool.CreateExpirationTimerCallback");
+
+                    DiagnosticSource.StartActivity(activity, now);
+                }
+
                 foreach (var key in Pool.Keys.ToList())
                 {
                     if (Pool.TryGetValue(key, out var poolItem))
@@ -222,6 +255,11 @@ namespace Azure.Messaging.EventHubs.Core
                         {
                             if (Pool.TryRemove(key, out var _) && !poolItem.ActiveInstances.Any())
                             {
+                                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                                {
+                                    DiagnosticSource.StopActivity(poolItem.Activity, poolItem.PartitionId);
+                                }
+
                                 // At this point the pool item may have been closed already
                                 // if there was a context switch between the if conditions
                                 // and the pool item clean up kicked in.
@@ -232,6 +270,11 @@ namespace Azure.Messaging.EventHubs.Core
                             }
                         }
                     }
+                }
+
+                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                {
+                    DiagnosticSource.StopActivity(activity, DateTimeOffset.UtcNow.ToString());
                 }
             };
         }
@@ -250,6 +293,8 @@ namespace Azure.Messaging.EventHubs.Core
             /// </summary>
             ///
             public TransportProducer PartitionProducer { get; private set; }
+
+            public Activity Activity { get; set; }
 
             /// <summary>
             ///   The unique identifier of a partition associated with the Event Hub.
@@ -288,17 +333,20 @@ namespace Azure.Messaging.EventHubs.Core
             /// <param name="partitionProducer">An Event Hub transport-specific producer specific to a given partition.</param>
             /// <param name="removeAfterDuration">The interval after which a <see cref="PoolItem" /> will become eligible for eviction. Overrides <see cref="DefaultRemoveAfterDuration" />.</param>
             /// <param name="removeAfter">The UTC date and time when a <see cref="PoolItem" /> will become eligible for eviction.</param>
+            /// <param name="activity">The diagnostic activity associated with this item.</param>
             ///
             public PoolItem(string partitionId,
                             TransportProducer partitionProducer,
                             TimeSpan? removeAfterDuration = default,
-                            DateTimeOffset? removeAfter = default)
+                            DateTimeOffset? removeAfter = default,
+                            Activity activity = default)
             {
                 Argument.AssertNotNullOrEmpty(partitionId, nameof(partitionId));
                 Argument.AssertNotNull(partitionProducer, nameof(partitionProducer));
 
                 PartitionProducer = partitionProducer;
                 PartitionId = partitionId;
+                Activity = activity;
 
                 if (removeAfter == default)
                 {

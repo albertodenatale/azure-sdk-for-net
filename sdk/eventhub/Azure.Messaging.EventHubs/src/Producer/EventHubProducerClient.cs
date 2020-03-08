@@ -111,6 +111,8 @@ namespace Azure.Messaging.EventHubs.Producer
         ///   Event Hub will result in a connection string that contains the name.
         /// </remarks>
         ///
+        /// <seealso href="https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-get-connection-string"/>
+        ///
         public EventHubProducerClient(string connectionString) : this(connectionString, null, null)
         {
         }
@@ -131,6 +133,8 @@ namespace Azure.Messaging.EventHubs.Producer
         ///   Event Hub will result in a connection string that contains the name.
         /// </remarks>
         ///
+        /// <seealso href="https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-get-connection-string"/>
+        ///
         public EventHubProducerClient(string connectionString,
                                       EventHubProducerClientOptions clientOptions) : this(connectionString, null, clientOptions)
         {
@@ -148,6 +152,8 @@ namespace Azure.Messaging.EventHubs.Producer
         ///   and can be used directly without passing the <paramref name="eventHubName" />.  The name of the Event Hub should be
         ///   passed only once, either as part of the connection string or separately.
         /// </remarks>
+        ///
+        /// <seealso href="https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-get-connection-string"/>
         ///
         public EventHubProducerClient(string connectionString,
                                       string eventHubName) : this(connectionString, eventHubName, null)
@@ -167,6 +173,8 @@ namespace Azure.Messaging.EventHubs.Producer
         ///   and can be used directly without passing the <paramref name="eventHubName" />.  The name of the Event Hub should be
         ///   passed only once, either as part of the connection string or separately.
         /// </remarks>
+        ///
+        /// <seealso href="https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-get-connection-string"/>
         ///
         public EventHubProducerClient(string connectionString,
                                       string eventHubName,
@@ -405,7 +413,17 @@ namespace Azure.Messaging.EventHubs.Producer
             events = (events as IList<EventData>) ?? events.ToList();
             InstrumentMessages(events);
 
-            using DiagnosticScope scope = CreateDiagnosticScope();
+            var diagnosticIdentifiers = new List<string>();
+
+            foreach (var eventData in events)
+            {
+                if (EventDataInstrumentation.TryExtractDiagnosticId(eventData, out var identifier))
+                {
+                    diagnosticIdentifiers.Add(identifier);
+                }
+            }
+
+            using DiagnosticScope scope = CreateDiagnosticScope(diagnosticIdentifiers);
 
             var pooledProducer = PartitionProducerPool.GetPooledProducer(options.PartitionId, PartitionProducerLifespan);
 
@@ -462,7 +480,7 @@ namespace Azure.Messaging.EventHubs.Producer
             AssertSinglePartitionReference(eventBatch.SendOptions.PartitionId, eventBatch.SendOptions.PartitionKey);
 
             int attempts = 0;
-            using DiagnosticScope scope = CreateDiagnosticScope();
+            using DiagnosticScope scope = CreateDiagnosticScope(eventBatch.GetEventDiagnosticIdentifiers());
 
             var pooledProducer = PartitionProducerPool.GetPooledProducer(eventBatch.SendOptions.PartitionId, PartitionProducerLifespan);
 
@@ -644,15 +662,26 @@ namespace Azure.Messaging.EventHubs.Producer
         ///   events.
         /// </summary>
         ///
+        /// <param name="diagnosticIdentifiers">The set of diagnostic identifiers to which the scope will be linked.</param>
+        ///
         /// <returns>The requested <see cref="DiagnosticScope" />.</returns>
         ///
-        private DiagnosticScope CreateDiagnosticScope()
+        private DiagnosticScope CreateDiagnosticScope(IEnumerable<string> diagnosticIdentifiers)
         {
             DiagnosticScope scope = EventDataInstrumentation.ScopeFactory.CreateScope(DiagnosticProperty.ProducerActivityName);
             scope.AddAttribute(DiagnosticProperty.KindAttribute, DiagnosticProperty.ClientKind);
             scope.AddAttribute(DiagnosticProperty.ServiceContextAttribute, DiagnosticProperty.EventHubsServiceContext);
             scope.AddAttribute(DiagnosticProperty.EventHubAttribute, EventHubName);
             scope.AddAttribute(DiagnosticProperty.EndpointAttribute, FullyQualifiedNamespace);
+
+            if (scope.IsEnabled)
+            {
+                foreach (var identifier in diagnosticIdentifiers)
+                {
+                    scope.AddLink(identifier);
+                }
+            }
+
             scope.Start();
 
             return scope;
@@ -668,7 +697,7 @@ namespace Azure.Messaging.EventHubs.Producer
         {
             foreach (EventData eventData in events)
             {
-                EventDataInstrumentation.InstrumentEvent(eventData);
+                EventDataInstrumentation.InstrumentEvent(eventData, FullyQualifiedNamespace, EventHubName);
             }
         }
 

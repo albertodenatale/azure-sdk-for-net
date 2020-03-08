@@ -55,7 +55,7 @@ namespace Azure.Messaging.EventHubs.Core
         ///
         private Timer ExpirationTimer { get; }
 
-        private DiagnosticSource DiagnosticSource { get; } = new DiagnosticListener("TransportProducerPool");
+        private DiagnosticSource DiagnosticSource { get; } = new DiagnosticListener($"{ nameof(TransportProducerPool) }");
 
         /// <summary>
         ///   Initializes a new instance of the <see cref="TransportProducerPool" /> class.
@@ -122,15 +122,13 @@ namespace Azure.Messaging.EventHubs.Core
             {
                 Activity activity = default;
 
-                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                if (DiagnosticSource.IsEnabled($"{ nameof(TransportProducerPool) }"))
                 {
-                    activity = new Activity("TransportProducerPool.PoolItem");
+                    activity = new Activity($"{ nameof(TransportProducerPool) }.{ nameof(PoolItem) }");
 
                     activity.AddTag("PartitionId", partitionId);
 
-                    string allPartitions = string.Join(", ", Pool.Select(p => p.Key));
-
-                    DiagnosticSource.StartActivity(activity, allPartitions);
+                    DiagnosticSource.StartActivity(activity, Pool);
                 }
 
                 return new PoolItem(partitionId, Connection.CreateTransportProducer(id, RetryPolicy), removeAfterDuration, activity: activity);
@@ -240,11 +238,11 @@ namespace Azure.Messaging.EventHubs.Core
 
                 Activity activity = null;
 
-                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                if (DiagnosticSource.IsEnabled($"{ nameof(TransportProducerPool) }"))
                 {
-                    activity = new Activity("TransportProducerPool.CreateExpirationTimerCallback");
+                    activity = new Activity($"{ nameof(TransportProducerPool) }.CreateExpirationTimerCallback");
 
-                    DiagnosticSource.StartActivity(activity, now);
+                    DiagnosticSource.StartActivity(activity, Pool);
                 }
 
                 foreach (var key in Pool.Keys.ToList())
@@ -255,7 +253,7 @@ namespace Azure.Messaging.EventHubs.Core
                         {
                             if (Pool.TryRemove(key, out var _) && !poolItem.ActiveInstances.Any())
                             {
-                                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                                if (DiagnosticSource.IsEnabled($"{ nameof(TransportProducerPool) }"))
                                 {
                                     DiagnosticSource.StopActivity(poolItem.Activity, poolItem.PartitionId);
                                 }
@@ -272,9 +270,9 @@ namespace Azure.Messaging.EventHubs.Core
                     }
                 }
 
-                if (DiagnosticSource.IsEnabled("TransportProducerPool"))
+                if (DiagnosticSource.IsEnabled($"{ nameof(TransportProducerPool) }"))
                 {
-                    DiagnosticSource.StopActivity(activity, DateTimeOffset.UtcNow.ToString());
+                    DiagnosticSource.StopActivity(activity, Pool);
                 }
             };
         }

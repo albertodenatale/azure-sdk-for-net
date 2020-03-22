@@ -13,13 +13,13 @@ namespace Azure.AI.TextAnalytics
         internal SentenceSentiment(TextSentiment sentiment, double positiveScore, double neutralScore, double negativeScore, int offset, int length)
         {
             Sentiment = sentiment;
-            ConfidenceScores = new SentimentConfidenceScore(positiveScore, neutralScore, negativeScore);
+            ConfidenceScores = new SentimentConfidenceScores(positiveScore, neutralScore, negativeScore);
             GraphemeOffset = offset;
             GraphemeLength = length;
         }
 
         /// <summary>
-        /// Gets the predicted sentiment for the analyzed input.
+        /// Gets the predicted sentiment for the analyzed sentence.
         /// </summary>
         public TextSentiment Sentiment { get; }
 
@@ -27,15 +27,15 @@ namespace Azure.AI.TextAnalytics
         /// Gets the sentiment confidence score (Softmax score) between 0 and 1,
         /// for each sentiment. Higher values signify higher confidence.
         /// </summary>
-        public SentimentConfidenceScore ConfidenceScores { get; }
+        public SentimentConfidenceScores ConfidenceScores { get; }
 
         /// <summary>
-        /// Gets the starting position (in Unicode graphemes) for the matching text in the input.
+        /// Gets the starting position (in Unicode graphemes) for the matching text in the sentence.
         /// </summary>
         public int GraphemeOffset { get; }
 
         /// <summary>
-        /// Gets the length (in Unicode graphemes) of the matching text in the input.
+        /// Gets the length (in Unicode graphemes) of the matching text in the sentence.
         /// </summary>
         public int GraphemeLength { get; }
     }

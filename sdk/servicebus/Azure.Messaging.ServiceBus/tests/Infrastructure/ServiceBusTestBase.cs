@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using Azure.Core;
+using Azure.Identity;
 using NUnit.Framework;
 
 namespace Azure.Messaging.ServiceBus.Tests
@@ -73,6 +75,28 @@ namespace Azure.Messaging.ServiceBus.Tests
                 text[i] = (byte)chars[idx];
             }
             return text;
+        }
+
+        protected TokenCredential GetTokenCredential() =>
+        new ClientSecretCredential(
+            TestEnvironment.ServiceBusTenant,
+            TestEnvironment.ServiceBusClient,
+            TestEnvironment.ServiceBusSecret);
+
+        protected ServiceBusClient GetNoRetryClient()
+        {
+            var options =
+                new ServiceBusClientOptions
+                {
+                    RetryOptions = new ServiceBusRetryOptions
+                    {
+                        TryTimeout = TimeSpan.FromSeconds(5),
+                        MaximumRetries = 0
+                    }
+                };
+            return new ServiceBusClient(
+                TestEnvironment.ServiceBusConnectionString,
+                options);
         }
     }
 }
